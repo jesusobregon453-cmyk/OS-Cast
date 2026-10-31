@@ -106,7 +106,7 @@ export const App: React.FC = () => {
     setErrorMessage(null);
     setPermissionDenied(false);
 
-    // If in Electron, fetch desktop sources directly (this naturally triggers macOS permissions if needed)
+    // If in Electron, try fetching available sources for user preview
     if ((window as any).electronAPI?.getDesktopSources) {
       try {
         const availableSources = await (window as any).electronAPI.getDesktopSources({
@@ -118,23 +118,13 @@ export const App: React.FC = () => {
           setPermissionDenied(false);
           setIsSourcePickerOpen(true);
           return;
-        } else {
-          // If no sources could be fetched, check if permission is actually blocked
-          if ((window as any).electronAPI?.checkScreenPermission) {
-            const perm = await (window as any).electronAPI.checkScreenPermission();
-            if (perm === 'denied') {
-              setPermissionDenied(true);
-              setIsSourcePickerOpen(true);
-              return;
-            }
-          }
         }
       } catch (err: any) {
         console.warn('Error fetching desktop sources:', err);
       }
     }
 
-    // Direct start (in browser or fallback)
+    // Direct capture: triggers native macOS screen & system audio capture without artificial blocking!
     try {
       await castManager.startCapture(config);
     } catch (err: any) {
@@ -151,6 +141,16 @@ export const App: React.FC = () => {
       } else {
         setErrorMessage(err.message || 'No se pudo iniciar la captura de pantalla. Verifica los permisos de macOS.');
       }
+    }
+  };
+
+  const handleDirectStart = async () => {
+    setIsSourcePickerOpen(false);
+    try {
+      await castManager.startCapture(config);
+    } catch (err: any) {
+      console.error('Error direct starting stream:', err);
+      setErrorMessage(err.message || 'No se pudo iniciar la transmisión.');
     }
   };
 
@@ -282,6 +282,7 @@ export const App: React.FC = () => {
         onClose={() => setIsSourcePickerOpen(false)}
         sources={sources}
         onSelectSource={handleSelectSource}
+        onDirectStart={handleDirectStart}
         permissionDenied={permissionDenied}
         onOpenSettings={handleOpenSettings}
         onRelaunch={() => {

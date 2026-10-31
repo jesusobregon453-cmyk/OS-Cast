@@ -54,6 +54,7 @@
       "category": "public.app-category.video",
       "extendInfo": {
         "NSScreenCaptureUsageDescription": "OS Cast Pro requiere acceso a la pantalla para transmitirla a tu televisor Fire TV.",
+        "NSAudioCaptureUsageDescription": "OS Cast Pro requiere acceso al audio del sistema para transmitir el sonido a tu televisor Fire TV.",
         "NSMicrophoneUsageDescription": "OS Cast Pro requiere acceso al audio para transmitir el sonido a tu televisor."
       },
       "target": [

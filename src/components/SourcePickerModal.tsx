@@ -7,6 +7,7 @@ interface SourcePickerModalProps {
   onClose: () => void;
   sources: CaptureSource[];
   onSelectSource: (sourceId: string) => void;
+  onDirectStart?: () => void;
   permissionDenied?: boolean;
   onOpenSettings?: () => void;
   onRelaunch?: () => void;
@@ -17,6 +18,7 @@ export const SourcePickerModal: React.FC<SourcePickerModalProps> = ({
   onClose,
   sources,
   onSelectSource,
+  onDirectStart,
   permissionDenied,
   onOpenSettings,
   onRelaunch,
@@ -114,8 +116,19 @@ export const SourcePickerModal: React.FC<SourcePickerModalProps> = ({
         {/* Source Grid */}
         <div className="p-6 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-4">
           {displayed.length === 0 ? (
-            <div className="col-span-2 py-10 text-center text-slate-500 text-xs">
-              No se detectaron fuentes disponibles.
+            <div className="col-span-2 py-6 text-center space-y-3">
+              <p className="text-slate-400 text-xs">
+                Puedes iniciar la transmisión directa de tu pantalla principal a tu televisor ahora mismo:
+              </p>
+              {onDirectStart && (
+                <button
+                  onClick={onDirectStart}
+                  className="inline-flex items-center space-x-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white font-bold rounded-xl text-xs shadow-lg transition"
+                >
+                  <Play className="w-4 h-4 fill-white" />
+                  <span>Transmitir Pantalla Principal a la TV</span>
+                </button>
+              )}
             </div>
           ) : (
             displayed.map((source) => (

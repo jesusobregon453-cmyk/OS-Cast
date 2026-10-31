@@ -900,7 +900,15 @@ ipcMain.handle('set-selected-source', (event, sourceId) => {
 app.whenReady().then(() => {
   // Allow navigator.mediaDevices.getDisplayMedia in Electron with native System Audio Loopback
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+    const fetchSources = async () => {
+      try {
+        return await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 1, height: 1 } });
+      } catch (e1) {
+        return await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } });
+      }
+    };
+
+    fetchSources().then((sources) => {
       let chosen = null;
       if (currentSelectedSourceId) {
         chosen = sources.find((s) => s.id === currentSelectedSourceId);
@@ -919,7 +927,7 @@ app.whenReady().then(() => {
         callback({});
       }
     }).catch((err) => {
-      console.error('DisplayMediaRequestHandler error:', err);
+      console.warn('[OS Cast] DisplayMediaRequestHandler error:', err.message);
       callback({});
     });
   });
