@@ -52,6 +52,10 @@
     ],
     "mac": {
       "category": "public.app-category.video",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "NSScreenCaptureUsageDescription": "OS Cast Pro requiere acceso a la pantalla para transmitirla a tu televisor Fire TV.",
         "NSAudioCaptureUsageDescription": "OS Cast Pro requiere acceso al audio del sistema para transmitir el sonido a tu televisor Fire TV.",
