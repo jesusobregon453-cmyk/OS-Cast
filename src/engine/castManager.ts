@@ -148,9 +148,7 @@ class CastEngine {
 
     const displayConstraints: DisplayMediaStreamOptions = {
       video: {
-        width: { ideal: maxWidth, max: maxWidth },
-        height: { ideal: maxHeight, max: maxHeight },
-        frameRate: { ideal: config.fps, max: config.fps },
+        frameRate: { ideal: config.fps },
       },
       audio: config.audioEnabled,
     };
@@ -164,27 +162,20 @@ class CastEngine {
         // Fallback to getUserMedia desktop capture
         if (preferredSourceId) {
           this.activeStream = await (navigator.mediaDevices as any).getUserMedia({
-            audio: config.audioEnabled
-              ? {
-                  mandatory: {
-                    chromeMediaSource: 'desktop',
-                  },
-                }
-              : false,
+            audio: false,
             video: {
               mandatory: {
                 chromeMediaSource: 'desktop',
                 chromeMediaSourceId: preferredSourceId,
-                minWidth: 1280,
-                maxWidth: maxWidth,
-                minHeight: 720,
-                maxHeight: maxHeight,
-                maxFrameRate: config.fps,
               },
             },
           });
         } else {
-          throw displayErr;
+          // If displayConstraints failed, try simplest fallback { video: true, audio: config.audioEnabled }
+          this.activeStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: config.audioEnabled,
+          });
         }
       }
 
