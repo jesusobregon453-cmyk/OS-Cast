@@ -9,6 +9,7 @@ interface SourcePickerModalProps {
   onSelectSource: (sourceId: string) => void;
   permissionDenied?: boolean;
   onOpenSettings?: () => void;
+  onRelaunch?: () => void;
 }
 
 export const SourcePickerModal: React.FC<SourcePickerModalProps> = ({
@@ -18,6 +19,7 @@ export const SourcePickerModal: React.FC<SourcePickerModalProps> = ({
   onSelectSource,
   permissionDenied,
   onOpenSettings,
+  onRelaunch,
 }) => {
   const [activeTab, setActiveTab] = useState<'screen' | 'window'>('screen');
 
@@ -54,20 +56,30 @@ export const SourcePickerModal: React.FC<SourcePickerModalProps> = ({
         {permissionDenied && (
           <div className="m-6 p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-start space-x-3 text-rose-300">
             <ShieldAlert className="w-5 h-5 flex-shrink-0 text-rose-400 mt-0.5" />
-            <div className="space-y-2 text-xs">
+            <div className="space-y-2 text-xs flex-1">
               <p className="font-bold text-white text-sm">Permiso de Grabación de Pantalla Requerido</p>
               <p className="text-slate-300 leading-relaxed text-[11px]">
-                macOS requiere que otorgues permiso de grabación de pantalla a <strong>OS Cast Pro</strong> para poder capturar y transmitir a tu televisor.
+                macOS requiere que otorgues permiso de grabación de pantalla a <strong>OS Cast Pro</strong>. Si ya lo activaste en Ajustes del Sistema, pulsa en "Reiniciar App" para que macOS aplique el permiso.
               </p>
-              {onOpenSettings && (
-                <button
-                  onClick={onOpenSettings}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-xl text-xs shadow transition"
-                >
-                  <span>Abrir Ajustes del Sistema &gt; Privacidad</span>
-                  <ExternalLink className="w-3 h-3" />
-                </button>
-              )}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {onOpenSettings && (
+                  <button
+                    onClick={onOpenSettings}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-xl text-xs shadow transition"
+                  >
+                    <span>Abrir Ajustes del Sistema &gt; Privacidad</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                )}
+                {onRelaunch && (
+                  <button
+                    onClick={onRelaunch}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl text-xs border border-slate-700 shadow transition"
+                  >
+                    <span>Reiniciar App</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

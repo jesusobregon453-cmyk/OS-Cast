@@ -815,12 +815,31 @@ ipcMain.handle('get-local-ips', async () => {
 });
 
 ipcMain.handle('get-desktop-sources', async (event, options) => {
-  const sources = await desktopCapturer.getSources(options || { types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 } });
-  return sources.map((s) => ({
-    id: s.id,
-    name: s.name,
-    thumbnail: s.thumbnail.toDataURL(),
-  }));
+  try {
+    const opts = options || { types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 } };
+    let sources = [];
+    try {
+      sources = await desktopCapturer.getSources(opts);
+    } catch (e1) {
+      // Fallback: try capturing screen only
+      sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 320, height: 180 } });
+    }
+
+    return sources.map((s) => ({
+      id: s.id,
+      name: s.name || (s.id.startsWith('screen') ? 'Pantalla Completa' : 'Ventana'),
+      thumbnail: s.thumbnail ? s.thumbnail.toDataURL() : '',
+      type: s.id.startsWith('screen') ? 'screen' : 'window',
+    }));
+  } catch (err) {
+    console.warn('[OS Cast] desktopCapturer.getSources permission pending or error:', err.message);
+    return [];
+  }
+});
+
+ipcMain.on('relaunch-app', () => {
+  app.relaunch();
+  app.exit(0);
 });
 
 ipcMain.handle('check-screen-permission', async () => {

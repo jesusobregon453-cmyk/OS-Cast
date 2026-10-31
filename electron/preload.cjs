@@ -30,4 +30,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('receiver-pong', handler);
     return () => ipcRenderer.removeListener('receiver-pong', handler);
   },
+  relaunchApp: () => ipcRenderer.send('relaunch-app'),
 });

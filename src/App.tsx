@@ -284,6 +284,13 @@ export const App: React.FC = () => {
         onSelectSource={handleSelectSource}
         permissionDenied={permissionDenied}
         onOpenSettings={handleOpenSettings}
+        onRelaunch={() => {
+          if ((window as any).electronAPI?.relaunchApp) {
+            (window as any).electronAPI.relaunchApp();
+          } else {
+            window.location.reload();
+          }
+        }}
       />
     </div>
   );
