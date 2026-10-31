@@ -824,8 +824,16 @@ ipcMain.handle('get-desktop-sources', async (event, options) => {
 });
 
 ipcMain.handle('check-screen-permission', async () => {
-  if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus) {
-    return systemPreferences.getMediaAccessStatus('screen');
+  if (process.platform === 'darwin') {
+    try {
+      const sources = await desktopCapturer.getSources({ types: ['screen'] });
+      if (sources && sources.length > 0) {
+        return 'granted';
+      }
+    } catch (e) {}
+    if (systemPreferences.getMediaAccessStatus) {
+      return systemPreferences.getMediaAccessStatus('screen');
+    }
   }
   return 'granted';
 });

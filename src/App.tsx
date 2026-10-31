@@ -106,26 +106,28 @@ export const App: React.FC = () => {
     setErrorMessage(null);
     setPermissionDenied(false);
 
-    // If in Electron, check permissions & fetch desktop sources
+    // If in Electron, fetch desktop sources directly (this naturally triggers macOS permissions if needed)
     if ((window as any).electronAPI?.getDesktopSources) {
       try {
-        if ((window as any).electronAPI?.checkScreenPermission) {
-          const perm = await (window as any).electronAPI.checkScreenPermission();
-          if (perm === 'denied') {
-            setPermissionDenied(true);
-            setIsSourcePickerOpen(true);
-            return;
-          }
-        }
-
         const availableSources = await (window as any).electronAPI.getDesktopSources({
           types: ['screen', 'window'],
         });
 
         if (availableSources && availableSources.length > 0) {
           setSources(availableSources);
+          setPermissionDenied(false);
           setIsSourcePickerOpen(true);
           return;
+        } else {
+          // If no sources could be fetched, check if permission is actually blocked
+          if ((window as any).electronAPI?.checkScreenPermission) {
+            const perm = await (window as any).electronAPI.checkScreenPermission();
+            if (perm === 'denied') {
+              setPermissionDenied(true);
+              setIsSourcePickerOpen(true);
+              return;
+            }
+          }
         }
       } catch (err: any) {
         console.warn('Error fetching desktop sources:', err);
@@ -137,7 +139,18 @@ export const App: React.FC = () => {
       await castManager.startCapture(config);
     } catch (err: any) {
       console.error('Error starting stream:', err);
-      setErrorMessage(err.message || 'No se pudo iniciar la captura de pantalla. Verifica los permisos de macOS.');
+      const isPermError =
+        err.name === 'NotAllowedError' ||
+        err.name === 'PermissionDeniedError' ||
+        err.message?.toLowerCase().includes('denied') ||
+        err.message?.toLowerCase().includes('permission');
+
+      if (isPermError) {
+        setPermissionDenied(true);
+        setIsSourcePickerOpen(true);
+      } else {
+        setErrorMessage(err.message || 'No se pudo iniciar la captura de pantalla. Verifica los permisos de macOS.');
+      }
     }
   };
 
@@ -147,7 +160,18 @@ export const App: React.FC = () => {
       await castManager.startCapture(config, sourceId);
     } catch (err: any) {
       console.error('Error starting stream with source:', err);
-      setErrorMessage(err.message || 'Error al iniciar captura de la pantalla seleccionada.');
+      const isPermError =
+        err.name === 'NotAllowedError' ||
+        err.name === 'PermissionDeniedError' ||
+        err.message?.toLowerCase().includes('denied') ||
+        err.message?.toLowerCase().includes('permission');
+
+      if (isPermError) {
+        setPermissionDenied(true);
+        setIsSourcePickerOpen(true);
+      } else {
+        setErrorMessage(err.message || 'Error al iniciar captura de la pantalla seleccionada.');
+      }
     }
   };
 
