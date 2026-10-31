@@ -6,6 +6,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getLocalIPs: () => ipcRenderer.invoke('get-local-ips'),
   getDesktopSources: (options) => ipcRenderer.invoke('get-desktop-sources', options),
   broadcastStreamStatus: (status) => ipcRenderer.send('stream-status', status),
+  sendFrame: (buffer) => ipcRenderer.send('send-frame', buffer),
+  sendSignal: (signal) => ipcRenderer.send('send-webrtc-signal', signal),
+  onSignalFromTV: (callback) => {
+    const handler = (event, signal) => callback(signal);
+    ipcRenderer.on('webrtc-from-tv', handler);
+    return () => ipcRenderer.removeListener('webrtc-from-tv', handler);
+  },
   onReceiverConnected: (callback) => {
     const handler = (event, clientInfo) => callback(clientInfo);
     ipcRenderer.on('receiver-connected', handler);
