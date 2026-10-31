@@ -4,6 +4,14 @@ const http = require('http');
 const os = require('os');
 const { WebSocketServer, WebSocket } = require('ws');
 
+// Hardware Acceleration & Zero Background Throttling for macOS Screen Mirroring
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+
 let mainWindow = null;
 let httpServer = null;
 let wss = null;
@@ -240,14 +248,20 @@ function getTvReceiverHtml() {
     const splash = document.getElementById('splashScreen');
     const remoteVideo = document.getElementById('remoteVideo');
     const canvas = document.getElementById('screenCanvas');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    if (ctx) {
+      ctx.imageSmoothingEnabled = false;
+    }
     const mjpgImg = document.getElementById('mjpgImg');
     const statusOverlay = document.getElementById('statusOverlay');
     const detectedTVName = document.getElementById('detectedTVName');
     const audioPrompt = document.getElementById('audioPrompt');
 
-    // Web Audio Context for TV
+    // Web Audio Context with Timeline Scheduling for TV
     let audioCtx = null;
+    let nextAudioTime = 0;
+    const JITTER_BUFFER = 0.045; // 45ms jitter cushion: eliminates clicks, pops, and metallic phase lag
+
     function ensureAudio() {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
@@ -256,6 +270,115 @@ function getTvReceiverHtml() {
         audioCtx.resume();
       }
       audioPrompt.style.display = 'none';
+    }
+
+    // Play incoming 16-bit PCM Audio (AU02 format)
+    function handleAudioPacketAU02(buffer) {
+      if (!audioCtx || audioCtx.state !== 'running') return;
+
+      try {
+        const view = new DataView(buffer);
+        const sampleRate = view.getUint32(4, true);
+        const channels = view.getUint16(8, true);
+        const int16Samples = new Int16Array(buffer, 10);
+        const frameCount = Math.floor(int16Samples.length / channels);
+
+        if (frameCount <= 0) return;
+
+        const audioBuffer = audioCtx.createBuffer(channels, frameCount, sampleRate);
+        for (let ch = 0; ch < channels; ch++) {
+          const channelData = audioBuffer.getChannelData(ch);
+          for (let i = 0; i < frameCount; i++) {
+            channelData[i] = int16Samples[i * channels + ch] / 32768.0;
+          }
+        }
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioCtx.destination);
+
+        const now = audioCtx.currentTime;
+        if (nextAudioTime < now) {
+          nextAudioTime = now + JITTER_BUFFER;
+        }
+
+        source.start(nextAudioTime);
+        nextAudioTime += audioBuffer.duration;
+      } catch (e) {
+        console.warn('Audio decode error:', e);
+      }
+    }
+
+    // Play incoming Float32 PCM Audio (AU01 format)
+    function handleAudioPacketLegacy(buffer) {
+      if (!audioCtx || audioCtx.state !== 'running') return;
+      try {
+        const floatData = new Float32Array(buffer.slice(4));
+        const audioBuffer = audioCtx.createBuffer(1, floatData.length, 44100);
+        audioBuffer.copyToChannel(floatData, 0);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioCtx.destination);
+
+        const now = audioCtx.currentTime;
+        if (nextAudioTime < now) {
+          nextAudioTime = now + JITTER_BUFFER;
+        }
+
+        source.start(nextAudioTime);
+        nextAudioTime += audioBuffer.duration;
+      } catch (e) {}
+    }
+
+    // GPU-accelerated Zero-Lag Frame Renderer
+    let isDrawing = false;
+    let latestBlob = null;
+
+    async function renderFrame() {
+      if (isDrawing || !latestBlob) return;
+      isDrawing = true;
+      const blob = latestBlob;
+      latestBlob = null; // Automatically drop stale frames when GPU is busy
+
+      try {
+        if (window.createImageBitmap) {
+          const bitmap = await createImageBitmap(blob);
+          if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            if (ctx) ctx.imageSmoothingEnabled = false;
+          }
+          if (ctx) ctx.drawImage(bitmap, 0, 0);
+          bitmap.close(); // Immediate zero-leak release of GPU surface
+        } else {
+          await new Promise((resolve) => {
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+              if (canvas.width !== img.width || canvas.height !== img.height) {
+                canvas.width = img.width;
+                canvas.height = img.height;
+              }
+              if (ctx) ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            img.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            img.src = url;
+          });
+        }
+      } catch (err) {
+        // Drop corrupted frame
+      } finally {
+        isDrawing = false;
+        if (latestBlob) {
+          requestAnimationFrame(renderFrame);
+        }
+      }
     }
 
     // Detect browser / device
@@ -340,35 +463,26 @@ function getTvReceiverHtml() {
           // Check if JPEG image frame (starts with 0xFF 0xD8)
           if (u8.length > 4 && u8[0] === 0xFF && u8[1] === 0xD8) {
             showLiveStream();
-            canvas.style.display = 'block';
-            remoteVideo.style.display = 'none';
+            if (remoteVideo.style.display !== 'block') {
+              canvas.style.display = 'block';
+            }
 
-            const blob = new Blob([event.data], { type: 'image/jpeg' });
-            const url = URL.createObjectURL(blob);
-            const img = new Image();
-            img.onload = () => {
-              if (canvas.width !== img.width || canvas.height !== img.height) {
-                canvas.width = img.width;
-                canvas.height = img.height;
-              }
-              ctx.drawImage(img, 0, 0);
-              URL.revokeObjectURL(url);
-            };
-            img.src = url;
+            latestBlob = new Blob([event.data], { type: 'image/jpeg' });
+            if (!isDrawing) {
+              renderFrame();
+            }
+            return;
+          }
+
+          // Check if High-Fidelity Audio PCM buffer (AU02)
+          if (u8.length >= 10 && u8[0] === 0x41 && u8[1] === 0x55 && u8[2] === 0x30 && u8[3] === 0x32) {
+            handleAudioPacketAU02(event.data);
             return;
           }
 
           // Check if Audio PCM buffer (starts with magic header 'AU01')
           if (u8.length > 4 && u8[0] === 0x41 && u8[1] === 0x55 && u8[2] === 0x30 && u8[3] === 0x31) {
-            if (audioCtx && audioCtx.state === 'running') {
-              const floatData = new Float32Array(event.data.slice(4));
-              const audioBuffer = audioCtx.createBuffer(1, floatData.length, 44100);
-              audioBuffer.copyToChannel(floatData, 0);
-              const source = audioCtx.createBufferSource();
-              source.buffer = audioBuffer;
-              source.connect(audioCtx.destination);
-              source.start();
-            }
+            handleAudioPacketLegacy(event.data);
             return;
           }
           return;
@@ -380,13 +494,10 @@ function getTvReceiverHtml() {
 
           if (msg.type === 'stream-started') {
             showLiveStream();
-            // Start MJPEG stream fallback in parallel
-            if (!mjpgImg.src) {
-              mjpgImg.src = '/stream.mjpg';
-              mjpgImg.style.display = 'block';
-            }
           } else if (msg.type === 'stream-stopped') {
             hideLiveStream();
+          } else if (msg.type === 'ping') {
+            ws.send(JSON.stringify({ type: 'pong', t: msg.t }));
           } else if (msg.type === 'webrtc-offer') {
             await handleWebRtcOffer(msg.offer);
           } else if (msg.type === 'ice-candidate') {
@@ -519,8 +630,6 @@ function startEmbeddedServer() {
       connectedAt: Date.now(),
     };
 
-    connectedReceivers.set(clientId, { ws, info: clientInfo });
-
     ws.on('message', (data) => {
       try {
         if (typeof data === 'string' || Buffer.isBuffer(data)) {
@@ -528,8 +637,10 @@ function startEmbeddedServer() {
           if (text.startsWith('{')) {
             const msg = JSON.parse(text);
             if (msg.type === 'register-receiver') {
+              ws.isReceiver = true; // Flag this socket as a TV receiver (never echo back to Mac sender!)
               clientInfo.name = msg.name || 'Dispositivo TV';
               clientInfo.userAgent = msg.userAgent || '';
+              connectedReceivers.set(clientId, { ws, info: clientInfo });
               if (mainWindow) {
                 mainWindow.webContents.send('receiver-connected', clientInfo);
               }
@@ -537,6 +648,10 @@ function startEmbeddedServer() {
               // Forward WebRTC signals from TV to Mac app
               if (mainWindow) {
                 mainWindow.webContents.send('webrtc-from-tv', msg);
+              }
+            } else if (msg.type === 'pong') {
+              if (mainWindow) {
+                mainWindow.webContents.send('receiver-pong', msg);
               }
             }
           }
@@ -548,14 +663,10 @@ function startEmbeddedServer() {
 
     ws.on('close', () => {
       connectedReceivers.delete(clientId);
-      if (mainWindow) {
+      if (mainWindow && ws.isReceiver) {
         mainWindow.webContents.send('receiver-disconnected', clientInfo);
       }
     });
-
-    if (mainWindow) {
-      mainWindow.webContents.send('receiver-connected', clientInfo);
-    }
   });
 
   httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
@@ -566,7 +677,7 @@ function startEmbeddedServer() {
 function broadcastFrameToReceivers(buffer) {
   latestFrame = buffer;
 
-  // 1. Send to all MJPEG HTTP clients
+  // 1. Send to all MJPEG HTTP clients (if any third-party browser requested /stream.mjpg)
   if (mjpegClients.size > 0) {
     const header = Buffer.from(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${buffer.length}\r\n\r\n`);
     const footer = Buffer.from('\r\n');
@@ -581,13 +692,17 @@ function broadcastFrameToReceivers(buffer) {
     }
   }
 
-  // 2. Send via WebSockets
+  // 2. Send via WebSockets ONLY to registered TV receivers with backpressure protection
   if (wss) {
     wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        try {
-          client.send(buffer);
-        } catch {}
+      // Never echo frames back to the Mac app itself!
+      if (client.isReceiver && client.readyState === WebSocket.OPEN) {
+        // If the TV's Wi-Fi network buffer is backed up > 192KB, drop this frame so latency stays at 0ms!
+        if (client.bufferedAmount < 192 * 1024) {
+          try {
+            client.send(buffer);
+          } catch {}
+        }
       }
     });
   }
@@ -608,6 +723,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
+      backgroundThrottling: false, // Prevents macOS background throttling so stream runs at full 60 FPS even when minimized!
     },
     show: false,
   });

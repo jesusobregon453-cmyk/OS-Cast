@@ -25,4 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('receiver-disconnected', handler);
     return () => ipcRenderer.removeListener('receiver-disconnected', handler);
   },
+  onReceiverPong: (callback) => {
+    const handler = (event, msg) => callback(msg);
+    ipcRenderer.on('receiver-pong', handler);
+    return () => ipcRenderer.removeListener('receiver-pong', handler);
+  },
 });
