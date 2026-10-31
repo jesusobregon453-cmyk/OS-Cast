@@ -4,6 +4,7 @@ import {
   Square,
   Volume2,
   VolumeX,
+  Mic,
   Gauge,
   Sliders,
   Sparkles,
@@ -107,21 +108,37 @@ export const StreamControls: React.FC<StreamControlsProps> = ({
           </div>
         </div>
 
-        {/* Audio Toggle */}
+        {/* Audio Toggle & Source Selector */}
         <div className="p-3 bg-slate-950/60 border border-slate-800/80 rounded-2xl space-y-1.5">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Audio a la TV</label>
-          <button
-            disabled={isStreaming}
-            onClick={() => onChangeConfig({ ...config, audioEnabled: !config.audioEnabled })}
-            className={`w-full py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition disabled:opacity-50 ${
-              config.audioEnabled
-                ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-300'
-                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:bg-slate-800'
-            }`}
-          >
-            {config.audioEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-            <span>{config.audioEnabled ? 'Audio Activado' : 'Sin Audio'}</span>
-          </button>
+          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Fuente de Audio</label>
+          <div className="grid grid-cols-2 gap-1">
+            <button
+              disabled={isStreaming}
+              onClick={() => onChangeConfig({ ...config, audioEnabled: true, systemAudio: true, micAudio: false })}
+              className={`py-1 px-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1 transition disabled:opacity-50 ${
+                config.audioEnabled && config.systemAudio
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800'
+              }`}
+              title="Transmite el sonido de tu Mac (YouTube, películas, música, apps)"
+            >
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>Audio Mac</span>
+            </button>
+            <button
+              disabled={isStreaming}
+              onClick={() => onChangeConfig({ ...config, audioEnabled: true, systemAudio: false, micAudio: true })}
+              className={`py-1 px-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1 transition disabled:opacity-50 ${
+                config.audioEnabled && config.micAudio
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-800'
+              }`}
+              title="Transmite tu voz mediante el micrófono"
+            >
+              <Mic className="w-3.5 h-3.5" />
+              <span>Micrófono</span>
+            </button>
+          </div>
         </div>
       </div>
 

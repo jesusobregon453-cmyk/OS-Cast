@@ -890,12 +890,31 @@ ipcMain.on('send-webrtc-signal', (event, signal) => {
   });
 });
 
+let currentSelectedSourceId = null;
+
+ipcMain.handle('set-selected-source', (event, sourceId) => {
+  currentSelectedSourceId = sourceId;
+  return true;
+});
+
 app.whenReady().then(() => {
-  // Allow navigator.mediaDevices.getDisplayMedia in Electron
+  // Allow navigator.mediaDevices.getDisplayMedia in Electron with native System Audio Loopback
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
-      if (sources && sources.length > 0) {
-        callback({ video: sources[0] });
+    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+      let chosen = null;
+      if (currentSelectedSourceId) {
+        chosen = sources.find((s) => s.id === currentSelectedSourceId);
+      }
+      if (!chosen && sources.length > 0) {
+        chosen = sources[0];
+      }
+
+      if (chosen) {
+        // 'loopback' captures macOS system audio natively via ScreenCaptureKit without using the mic!
+        callback({
+          video: chosen,
+          audio: request.audioRequested ? 'loopback' : undefined,
+        });
       } else {
         callback({});
       }

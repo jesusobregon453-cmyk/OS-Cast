@@ -31,4 +31,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('receiver-pong', handler);
   },
   relaunchApp: () => ipcRenderer.send('relaunch-app'),
+  setSelectedSource: (sourceId) => ipcRenderer.invoke('set-selected-source', sourceId),
 });

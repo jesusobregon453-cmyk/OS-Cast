@@ -139,66 +139,51 @@ class CastEngine {
     const maxWidth = config.resolution === '4k' ? 3840 : config.resolution === '1080p' ? 1920 : 1280;
     const maxHeight = config.resolution === '4k' ? 2160 : config.resolution === '1080p' ? 1080 : 720;
 
+    // Save selected source ID in Electron main process
+    if (preferredSourceId && (window as any).electronAPI?.setSelectedSource) {
+      try {
+        await (window as any).electronAPI.setSelectedSource(preferredSourceId);
+      } catch (e) {}
+    }
+
     const displayConstraints: DisplayMediaStreamOptions = {
       video: {
         width: { ideal: maxWidth, max: maxWidth },
         height: { ideal: maxHeight, max: maxHeight },
         frameRate: { ideal: config.fps, max: config.fps },
       },
-      audio: config.audioEnabled
-        ? {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          }
-        : false,
+      audio: config.audioEnabled,
     };
 
     try {
-      if (preferredSourceId) {
-        this.activeStream = await (navigator.mediaDevices as any).getUserMedia({
-          audio: false,
-          video: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: preferredSourceId,
-              minWidth: 1280,
-              maxWidth: maxWidth,
-              minHeight: 720,
-              maxHeight: maxHeight,
-              maxFrameRate: config.fps,
-            },
-          },
-        });
-
-        // Add audio track if audio is requested
-        if (config.audioEnabled && this.activeStream) {
-          try {
-            const micStream = await navigator.mediaDevices.getUserMedia({
-              audio: {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false,
+      // 1. In Electron, getDisplayMedia invokes setDisplayMediaRequestHandler which captures
+      // the chosen screen AND the native macOS System Audio loopback ('loopback') via ScreenCaptureKit!
+      try {
+        this.activeStream = await navigator.mediaDevices.getDisplayMedia(displayConstraints);
+      } catch (displayErr) {
+        // Fallback to getUserMedia desktop capture
+        if (preferredSourceId) {
+          this.activeStream = await (navigator.mediaDevices as any).getUserMedia({
+            audio: config.audioEnabled
+              ? {
+                  mandatory: {
+                    chromeMediaSource: 'desktop',
+                  },
+                }
+              : false,
+            video: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: preferredSourceId,
+                minWidth: 1280,
+                maxWidth: maxWidth,
+                minHeight: 720,
+                maxHeight: maxHeight,
+                maxFrameRate: config.fps,
               },
-              video: false,
-            });
-            if (micStream.getAudioTracks().length > 0) {
-              this.activeStream.addTrack(micStream.getAudioTracks()[0]);
-            }
-          } catch (e) {
-            console.warn('Microphone/System audio capture failed:', e);
-          }
-        }
-      } else {
-        try {
-          this.activeStream = await navigator.mediaDevices.getDisplayMedia(displayConstraints);
-        } catch (displayErr) {
-          if ((window as any).electronAPI?.getDesktopSources) {
-            const sources = await (window as any).electronAPI.getDesktopSources({ types: ['screen'] });
-            if (sources && sources.length > 0) {
-              return this.startCapture(config, sources[0].id);
-            }
-          }
+            },
+          });
+        } else {
           throw displayErr;
         }
       }
@@ -208,6 +193,34 @@ class CastEngine {
       }
 
       const stream = this.activeStream;
+      const audioTracks = stream.getAudioTracks();
+      console.log(
+        '[OS Cast Engine] Stream initialized. Video tracks:',
+        stream.getVideoTracks().length,
+        'Audio tracks:',
+        audioTracks.length,
+        audioTracks.map((t) => t.label)
+      );
+
+      // Only if user explicitly requests microphone (micAudio = true and systemAudio = false)
+      if (config.audioEnabled && config.micAudio && !config.systemAudio && audioTracks.length === 0) {
+        try {
+          const micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+            video: false,
+          });
+          if (micStream.getAudioTracks().length > 0) {
+            stream.addTrack(micStream.getAudioTracks()[0]);
+          }
+        } catch (e) {
+          console.warn('Microphone capture failed:', e);
+        }
+      }
+
       this.startTime = Date.now();
       this.framesSentCount = 0;
       this.bytesSentCount = 0;
