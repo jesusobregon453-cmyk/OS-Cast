@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, Menu, ipcMain, desktopCapturer } = require('electron');
+const { app, BrowserWindow, shell, Menu, ipcMain, desktopCapturer, session, systemPreferences } = require('electron');
 const path = require('path');
 const http = require('http');
 const os = require('os');
@@ -699,12 +699,25 @@ ipcMain.handle('get-local-ips', async () => {
 });
 
 ipcMain.handle('get-desktop-sources', async (event, options) => {
-  const sources = await desktopCapturer.getSources(options || { types: ['screen', 'window'] });
+  const sources = await desktopCapturer.getSources(options || { types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 } });
   return sources.map((s) => ({
     id: s.id,
     name: s.name,
     thumbnail: s.thumbnail.toDataURL(),
   }));
+});
+
+ipcMain.handle('check-screen-permission', async () => {
+  if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus) {
+    return systemPreferences.getMediaAccessStatus('screen');
+  }
+  return 'granted';
+});
+
+ipcMain.handle('open-screen-settings', async () => {
+  if (process.platform === 'darwin') {
+    shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+  }
 });
 
 // Broadcast messages to all connected TV receivers
@@ -735,6 +748,20 @@ ipcMain.on('send-webrtc-signal', (event, signal) => {
 });
 
 app.whenReady().then(() => {
+  // Allow navigator.mediaDevices.getDisplayMedia in Electron
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+      if (sources && sources.length > 0) {
+        callback({ video: sources[0] });
+      } else {
+        callback({});
+      }
+    }).catch((err) => {
+      console.error('DisplayMediaRequestHandler error:', err);
+      callback({});
+    });
+  });
+
   startEmbeddedServer();
   createWindow();
 

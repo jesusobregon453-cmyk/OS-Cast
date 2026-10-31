@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   getLocalIPs: () => ipcRenderer.invoke('get-local-ips'),
   getDesktopSources: (options) => ipcRenderer.invoke('get-desktop-sources', options),
+  checkScreenPermission: () => ipcRenderer.invoke('check-screen-permission'),
+  openScreenSettings: () => ipcRenderer.invoke('open-screen-settings'),
   broadcastStreamStatus: (status) => ipcRenderer.send('stream-status', status),
   sendFrame: (buffer) => ipcRenderer.send('send-frame', buffer),
   sendSignal: (signal) => ipcRenderer.send('send-webrtc-signal', signal),

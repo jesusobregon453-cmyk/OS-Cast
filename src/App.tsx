@@ -4,15 +4,20 @@ import { StreamPreview } from './components/StreamPreview';
 import { StreamControls } from './components/StreamControls';
 import { DeviceScanner } from './components/DeviceScanner';
 import { ConnectModal } from './components/ConnectModal';
+import { SourcePickerModal } from './components/SourcePickerModal';
 import { castManager } from './engine/castManager';
-import type { CastDevice, StreamConfig, StreamStats } from './types';
-import { Sparkles, Tv, ShieldCheck, Cpu, Wifi } from 'lucide-react';
+import type { CastDevice, StreamConfig, StreamStats, CaptureSource } from './types';
+import { Sparkles, Tv, ShieldCheck, AlertCircle, ExternalLink } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
   const [stats, setStats] = useState<StreamStats | null>(null);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState<boolean>(false);
+  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState<boolean>(false);
+  const [sources, setSources] = useState<CaptureSource[]>([]);
+  const [permissionDenied, setPermissionDenied] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLaserActive, setIsLaserActive] = useState<boolean>(false);
   const [localIp, setLocalIp] = useState<string>('127.0.0.1');
 
@@ -34,7 +39,6 @@ export const App: React.FC = () => {
     if ((window as any).electronAPI?.getLocalIPs) {
       (window as any).electronAPI.getLocalIPs().then((ips: any[]) => {
         if (ips && ips.length > 0) {
-          // Find first WiFi / En0 or standard private IP (192.168.x.x / 10.x.x.x)
           const primary = ips.find((i) => i.ip.startsWith('192.168.') || i.ip.startsWith('10.')) || ips[0];
           setLocalIp(primary.ip);
         }
@@ -78,6 +82,7 @@ export const App: React.FC = () => {
     const unsubStart = castManager.on('stream-started', (stream: MediaStream) => {
       setActiveStream(stream);
       setIsStreaming(true);
+      setErrorMessage(null);
     });
 
     const unsubStop = castManager.on('stream-stopped', () => {
@@ -97,16 +102,63 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const handleStartStream = async () => {
+  const handleStartStreamClick = async () => {
+    setErrorMessage(null);
+    setPermissionDenied(false);
+
+    // If in Electron, check permissions & fetch desktop sources
+    if ((window as any).electronAPI?.getDesktopSources) {
+      try {
+        if ((window as any).electronAPI?.checkScreenPermission) {
+          const perm = await (window as any).electronAPI.checkScreenPermission();
+          if (perm === 'denied') {
+            setPermissionDenied(true);
+            setIsSourcePickerOpen(true);
+            return;
+          }
+        }
+
+        const availableSources = await (window as any).electronAPI.getDesktopSources({
+          types: ['screen', 'window'],
+        });
+
+        if (availableSources && availableSources.length > 0) {
+          setSources(availableSources);
+          setIsSourcePickerOpen(true);
+          return;
+        }
+      } catch (err: any) {
+        console.warn('Error fetching desktop sources:', err);
+      }
+    }
+
+    // Direct start (in browser or fallback)
     try {
       await castManager.startCapture(config);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error starting stream:', err);
+      setErrorMessage(err.message || 'No se pudo iniciar la captura de pantalla. Verifica los permisos de macOS.');
+    }
+  };
+
+  const handleSelectSource = async (sourceId: string) => {
+    setIsSourcePickerOpen(false);
+    try {
+      await castManager.startCapture(config, sourceId);
+    } catch (err: any) {
+      console.error('Error starting stream with source:', err);
+      setErrorMessage(err.message || 'Error al iniciar captura de la pantalla seleccionada.');
     }
   };
 
   const handleStopStream = () => {
     castManager.stopCapture();
+  };
+
+  const handleOpenSettings = () => {
+    if ((window as any).electronAPI?.openScreenSettings) {
+      (window as any).electronAPI.openScreenSettings();
+    }
   };
 
   return (
@@ -118,6 +170,25 @@ export const App: React.FC = () => {
         localIp={localIp}
         onOpenConnectModal={() => setIsConnectModalOpen(true)}
       />
+
+      {/* Error / Permission Banner if active */}
+      {errorMessage && (
+        <div className="max-w-7xl mx-auto w-full px-6 pt-4">
+          <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center justify-between text-rose-300 text-xs">
+            <div className="flex items-center space-x-2.5">
+              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              onClick={handleOpenSettings}
+              className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-semibold flex items-center space-x-1 transition"
+            >
+              <span>Ajustes de macOS</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -135,7 +206,7 @@ export const App: React.FC = () => {
             config={config}
             onChangeConfig={setConfig}
             isStreaming={isStreaming}
-            onStartStream={handleStartStream}
+            onStartStream={handleStartStreamClick}
             onStopStream={handleStopStream}
             isLaserActive={isLaserActive}
             onToggleLaser={() => setIsLaserActive(!isLaserActive)}
@@ -179,6 +250,16 @@ export const App: React.FC = () => {
         isOpen={isConnectModalOpen}
         onClose={() => setIsConnectModalOpen(false)}
         localIp={localIp}
+      />
+
+      {/* Source Selection Modal (Screen / Window picker) */}
+      <SourcePickerModal
+        isOpen={isSourcePickerOpen}
+        onClose={() => setIsSourcePickerOpen(false)}
+        sources={sources}
+        onSelectSource={handleSelectSource}
+        permissionDenied={permissionDenied}
+        onOpenSettings={handleOpenSettings}
       />
     </div>
   );

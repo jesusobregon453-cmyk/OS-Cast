@@ -115,7 +115,7 @@ class CastEngine {
     this.listeners.get(event)?.forEach((fn) => fn(data));
   }
 
-  public async startCapture(config: StreamConfig): Promise<MediaStream> {
+  public async startCapture(config: StreamConfig, preferredSourceId?: string): Promise<MediaStream> {
     const width = config.resolution === '4k' ? 3840 : config.resolution === '1080p' ? 1920 : 1280;
     const height = config.resolution === '4k' ? 2160 : config.resolution === '1080p' ? 1080 : 720;
 
@@ -135,7 +135,54 @@ class CastEngine {
     };
 
     try {
-      this.activeStream = await navigator.mediaDevices.getDisplayMedia(displayConstraints);
+      if (preferredSourceId) {
+        // Native Electron desktop capture by source ID
+        this.activeStream = await (navigator.mediaDevices as any).getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: preferredSourceId,
+              minWidth: 1280,
+              maxWidth: width,
+              minHeight: 720,
+              maxHeight: height,
+              maxFrameRate: config.fps,
+            },
+          },
+        });
+
+        // Add audio track if audio is enabled
+        if (config.audioEnabled && this.activeStream) {
+          try {
+            const micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            if (micStream.getAudioTracks().length > 0) {
+              this.activeStream.addTrack(micStream.getAudioTracks()[0]);
+            }
+          } catch (e) {
+            console.warn('Could not capture audio track:', e);
+          }
+        }
+      } else {
+        // Standard getDisplayMedia (with fallback to Electron desktop source)
+        try {
+          this.activeStream = await navigator.mediaDevices.getDisplayMedia(displayConstraints);
+        } catch (displayErr) {
+          if ((window as any).electronAPI?.getDesktopSources) {
+            const sources = await (window as any).electronAPI.getDesktopSources({ types: ['screen'] });
+            if (sources && sources.length > 0) {
+              return this.startCapture(config, sources[0].id);
+            }
+          }
+          throw displayErr;
+        }
+      }
+
+      if (!this.activeStream) {
+        throw new Error('No se pudo inicializar la señal de captura de pantalla.');
+      }
+
+      const stream = this.activeStream;
       this.startTime = Date.now();
       this.framesSentCount = 0;
       this.bytesSentCount = 0;
@@ -149,7 +196,7 @@ class CastEngine {
         this.hiddenVideo.playsInline = true;
         this.hiddenVideo.autoplay = true;
       }
-      this.hiddenVideo.srcObject = this.activeStream;
+      this.hiddenVideo.srcObject = stream;
       await this.hiddenVideo.play().catch(() => {});
 
       // Setup hidden canvas
@@ -161,7 +208,7 @@ class CastEngine {
       this.hiddenCanvas.height = height;
 
       // Listen for when user stops screen share from native OS bar
-      this.activeStream.getVideoTracks()[0].addEventListener('ended', () => {
+      stream.getVideoTracks()[0].addEventListener('ended', () => {
         this.stopCapture();
       });
 
@@ -172,8 +219,8 @@ class CastEngine {
       this.startFrameCaptureLoop(config);
 
       // 3. Start Audio transmission pipeline if audio track is present
-      if (config.audioEnabled && this.activeStream.getAudioTracks().length > 0) {
-        this.startAudioStreaming(this.activeStream);
+      if (config.audioEnabled && stream.getAudioTracks().length > 0) {
+        this.startAudioStreaming(stream);
       }
 
       // 4. Start WebRTC peer connection
@@ -181,9 +228,9 @@ class CastEngine {
 
       // 5. Start stats monitor
       this.startStatsMonitoring(config);
-      this.emit('stream-started', this.activeStream);
+      this.emit('stream-started', stream);
 
-      return this.activeStream;
+      return stream;
     } catch (err: any) {
       console.error('Error starting screen capture:', err);
       throw err;
